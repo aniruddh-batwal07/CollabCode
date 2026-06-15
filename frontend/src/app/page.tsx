@@ -1,60 +1,50 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Editor from "@monaco-editor/react";
 import { socket } from "@/lib/socket";
 
 export default function Home() {
   const [roomId, setRoomId] =
     useState("room-1");
 
-  const [message, setMessage] =
-    useState("");
-
-  const [messages, setMessages] =
-    useState<string[]>([]);
+  const [code, setCode] = useState(
+    "// Start coding..."
+  );
 
   useEffect(() => {
     socket.on(
-      "receive-message",
-      (message: string) => {
-        setMessages((prev) => [
-          ...prev,
-          message,
-        ]);
+      "receive-code",
+      (incomingCode: string) => {
+        setCode(incomingCode);
       }
     );
 
     return () => {
-      socket.off("receive-message");
+      socket.off("receive-code");
     };
   }, []);
 
   const joinRoom = () => {
     socket.emit("join-room", roomId);
-
-    console.log(
-      `Joined room: ${roomId}`
-    );
   };
 
-  const sendMessage = () => {
-    if (!message.trim()) return;
+  const handleCodeChange = (
+    value: string | undefined
+  ) => {
+    const updatedCode = value || "";
 
-    socket.emit("send-message", {
+    setCode(updatedCode);
+
+    socket.emit("code-change", {
       roomId,
-      message,
+      code: updatedCode,
     });
-
-    setMessage("");
   };
 
   return (
-    <main className="p-8">
-      <h1 className="text-3xl font-bold mb-6">
-        Room Test
-      </h1>
-
-      <div className="mb-4">
+    <main className="h-screen flex flex-col">
+      <div className="p-4 border-b">
         <input
           className="border p-2 mr-2"
           value={roomId}
@@ -64,35 +54,19 @@ export default function Home() {
         />
 
         <button
-          onClick={joinRoom}
           className="border px-4 py-2"
+          onClick={joinRoom}
         >
           Join Room
         </button>
       </div>
 
-      <div className="mb-4">
-        <input
-          className="border p-2 mr-2"
-          value={message}
-          onChange={(e) =>
-            setMessage(e.target.value)
-          }
-        />
-
-        <button
-          onClick={sendMessage}
-          className="border px-4 py-2"
-        >
-          Send
-        </button>
-      </div>
-
-      <div>
-        {messages.map((msg, index) => (
-          <div key={index}>{msg}</div>
-        ))}
-      </div>
+      <Editor
+        height="100%"
+        language="javascript"
+        value={code}
+        onChange={handleCodeChange}
+      />
     </main>
   );
 }

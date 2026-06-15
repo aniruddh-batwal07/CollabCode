@@ -23,38 +23,57 @@ io.on("connection", (socket) => {
   console.log(`User connected: ${socket.id}`);
 
   socket.on("join-room", (roomId: string) => {
-  socket.join(roomId);
+    socket.join(roomId);
 
-  console.log(`${socket.id} joined ${roomId}`);
-});
+    console.log(`${socket.id} joined ${roomId}`);
+  });
 
-socket.on(
-  "send-message",
-  ({
-    roomId,
-    message,
-  }: {
-    roomId: string;
-    message: string;
-  }) => {
-    console.log(
-      `[${roomId}] ${socket.id}: ${message}`
-    );
+  socket.on(
+    "send-message",
+    ({
+      roomId,
+      message,
+    }: {
+      roomId: string;
+      message: string;
+    }) => {
+      console.log(
+        `[${roomId}] ${socket.id}: ${message}`
+      );
 
-    io.to(roomId).emit(
-      "receive-message",
-      message
-    );
-  }
-);
+      io.to(roomId).emit(
+        "receive-message",
+        message
+      );
+    }
+  );
+
+  socket.on(
+    "code-change",
+    ({
+      roomId,
+      code,
+    }: {
+      roomId: string;
+      code: string;
+    }) => {
+      socket
+        .to(roomId)
+        .emit("receive-code", code);
+    }
+  );
 
   socket.on("disconnect", () => {
-    console.log(`User disconnected: ${socket.id}`);
+    console.log(
+      `User disconnected: ${socket.id}`
+    );
   });
 });
 
 const PORT = 5000;
 
 server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(
+    `Server running on port ${PORT}`
+  );
 });
