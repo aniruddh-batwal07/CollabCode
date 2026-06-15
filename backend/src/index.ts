@@ -22,11 +22,31 @@ app.get("/", (_, res) => {
 io.on("connection", (socket) => {
   console.log(`User connected: ${socket.id}`);
 
-  socket.on("send-message", (message: string) => {
-    console.log(`Message received: ${message}`);
+  socket.on("join-room", (roomId: string) => {
+  socket.join(roomId);
 
-    io.emit("receive-message", message);
-  });
+  console.log(`${socket.id} joined ${roomId}`);
+});
+
+socket.on(
+  "send-message",
+  ({
+    roomId,
+    message,
+  }: {
+    roomId: string;
+    message: string;
+  }) => {
+    console.log(
+      `[${roomId}] ${socket.id}: ${message}`
+    );
+
+    io.to(roomId).emit(
+      "receive-message",
+      message
+    );
+  }
+);
 
   socket.on("disconnect", () => {
     console.log(`User disconnected: ${socket.id}`);

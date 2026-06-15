@@ -4,23 +4,46 @@ import { useEffect, useState } from "react";
 import { socket } from "@/lib/socket";
 
 export default function Home() {
-  const [message, setMessage] = useState("");
-  const [messages, setMessages] = useState<string[]>([]);
+  const [roomId, setRoomId] =
+    useState("room-1");
+
+  const [message, setMessage] =
+    useState("");
+
+  const [messages, setMessages] =
+    useState<string[]>([]);
 
   useEffect(() => {
-    socket.on("receive-message", (message: string) => {
-      setMessages((prev) => [...prev, message]);
-    });
+    socket.on(
+      "receive-message",
+      (message: string) => {
+        setMessages((prev) => [
+          ...prev,
+          message,
+        ]);
+      }
+    );
 
     return () => {
       socket.off("receive-message");
     };
   }, []);
 
+  const joinRoom = () => {
+    socket.emit("join-room", roomId);
+
+    console.log(
+      `Joined room: ${roomId}`
+    );
+  };
+
   const sendMessage = () => {
     if (!message.trim()) return;
 
-    socket.emit("send-message", message);
+    socket.emit("send-message", {
+      roomId,
+      message,
+    });
 
     setMessage("");
   };
@@ -28,15 +51,33 @@ export default function Home() {
   return (
     <main className="p-8">
       <h1 className="text-3xl font-bold mb-6">
-        WebSocket Test
+        Room Test
       </h1>
 
-      <div className="flex gap-2 mb-6">
+      <div className="mb-4">
         <input
-          className="border p-2"
+          className="border p-2 mr-2"
+          value={roomId}
+          onChange={(e) =>
+            setRoomId(e.target.value)
+          }
+        />
+
+        <button
+          onClick={joinRoom}
+          className="border px-4 py-2"
+        >
+          Join Room
+        </button>
+      </div>
+
+      <div className="mb-4">
+        <input
+          className="border p-2 mr-2"
           value={message}
-          onChange={(e) => setMessage(e.target.value)}
-          placeholder="Type message"
+          onChange={(e) =>
+            setMessage(e.target.value)
+          }
         />
 
         <button
@@ -49,9 +90,7 @@ export default function Home() {
 
       <div>
         {messages.map((msg, index) => (
-          <div key={index}>
-            {msg}
-          </div>
+          <div key={index}>{msg}</div>
         ))}
       </div>
     </main>
