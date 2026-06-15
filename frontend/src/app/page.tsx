@@ -1,29 +1,27 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import Editor from "@monaco-editor/react";
+import { useState } from "react";
+
 import { socket } from "@/lib/socket";
+
+import RoomControls from "@/components/RoomControls";
+import CodeEditor from "@/components/CodeEditor";
+
+import { useSocket } from "@/hooks/useSocket";
 
 export default function Home() {
   const [roomId, setRoomId] =
     useState("room-1");
 
-  const [code, setCode] = useState(
-    "// Start coding..."
+  const [code, setCode] =
+    useState("// Start coding...");
+
+  useSocket(
+    "receive-code",
+    (incomingCode: string) => {
+      setCode(incomingCode);
+    }
   );
-
-  useEffect(() => {
-    socket.on(
-      "receive-code",
-      (incomingCode: string) => {
-        setCode(incomingCode);
-      }
-    );
-
-    return () => {
-      socket.off("receive-code");
-    };
-  }, []);
 
   const joinRoom = () => {
     socket.emit("join-room", roomId);
@@ -44,27 +42,14 @@ export default function Home() {
 
   return (
     <main className="h-screen flex flex-col">
-      <div className="p-4 border-b">
-        <input
-          className="border p-2 mr-2"
-          value={roomId}
-          onChange={(e) =>
-            setRoomId(e.target.value)
-          }
-        />
+      <RoomControls
+        roomId={roomId}
+        setRoomId={setRoomId}
+        joinRoom={joinRoom}
+      />
 
-        <button
-          className="border px-4 py-2"
-          onClick={joinRoom}
-        >
-          Join Room
-        </button>
-      </div>
-
-      <Editor
-        height="100%"
-        language="javascript"
-        value={code}
+      <CodeEditor
+        code={code}
         onChange={handleCodeChange}
       />
     </main>

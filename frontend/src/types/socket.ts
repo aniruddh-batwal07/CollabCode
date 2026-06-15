@@ -1,4 +1,8 @@
-export interface SendMessagePayload {
+export interface CodeChangePayload {
   roomId: string;
-  message: string;
+  code: string;
+}
+
+export interface JoinRoomPayload {
+  roomId: string;
 }
