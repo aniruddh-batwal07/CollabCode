@@ -1,8 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import * as Y from "yjs";
 
 import { socket } from "@/lib/socket";
+import { ydoc, ytext } from "@/lib/yjs";
 
 import RoomControls from "@/components/RoomControls";
 import CodeEditor from "@/components/CodeEditor";
@@ -16,10 +18,32 @@ export default function Home() {
   const [code, setCode] =
     useState("// Start coding...");
 
+  useEffect(() => {
+    const updateHandler = (
+      update: Uint8Array
+    ) => {
+      socket.emit("yjs-update", {
+        roomId,
+        update: Array.from(update),
+      });
+    };
+
+    ydoc.on("update", updateHandler);
+
+    return () => {
+      ydoc.off("update", updateHandler);
+    };
+  }, [roomId]);
+
   useSocket(
-    "receive-code",
-    (incomingCode: string) => {
-      setCode(incomingCode);
+    "yjs-update",
+    (update: number[]) => {
+      Y.applyUpdate(
+        ydoc,
+        new Uint8Array(update)
+      );
+
+      setCode(ytext.toString());
     }
   );
 
@@ -32,12 +56,17 @@ export default function Home() {
   ) => {
     const updatedCode = value || "";
 
-    setCode(updatedCode);
+    ytext.delete(
+      0,
+      ytext.length
+    );
 
-    socket.emit("code-change", {
-      roomId,
-      code: updatedCode,
-    });
+    ytext.insert(
+      0,
+      updatedCode
+    );
+
+    setCode(updatedCode);
   };
 
   return (

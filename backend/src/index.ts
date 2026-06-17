@@ -63,6 +63,21 @@ io.on("connection", (socket) => {
     }
   );
 
+  socket.on(
+    "yjs-update",
+    ({
+      roomId,
+      update,
+    }: {
+      roomId: string;
+      update: number[];
+    }) => {
+      socket
+        .to(roomId)
+        .emit("yjs-update", update);
+    }
+  );
+
   socket.on("disconnect", () => {
     console.log(
       `User disconnected: ${socket.id}`
