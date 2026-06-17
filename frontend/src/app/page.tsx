@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import * as Y from "yjs";
 
 import { socket } from "@/lib/socket";
-import { ydoc, ytext } from "@/lib/yjs";
+import { ydoc, ytext } from "@/lib/collaboration";
 
 import RoomControls from "@/components/RoomControls";
 import CodeEditor from "@/components/CodeEditor";
@@ -14,9 +14,6 @@ import { useSocket } from "@/hooks/useSocket";
 export default function Home() {
   const [roomId, setRoomId] =
     useState("room-1");
-
-  const [code, setCode] =
-    useState("// Start coding...");
 
   useEffect(() => {
     const updateHandler = (
@@ -42,8 +39,6 @@ export default function Home() {
         ydoc,
         new Uint8Array(update)
       );
-
-      setCode(ytext.toString());
     }
   );
 
@@ -51,22 +46,22 @@ export default function Home() {
     socket.emit("join-room", roomId);
   };
 
-  const handleCodeChange = (
-    value: string | undefined
+  const handleEditorMount = async (
+    editor: any,
+    monaco: any
   ) => {
-    const updatedCode = value || "";
+    const model = editor.getModel();
 
-    ytext.delete(
-      0,
-      ytext.length
+    if (!model) return;
+
+    const { MonacoBinding } = await import("y-monaco");
+
+    new MonacoBinding(
+      ytext,
+      model,
+      new Set([editor]),
+      null
     );
-
-    ytext.insert(
-      0,
-      updatedCode
-    );
-
-    setCode(updatedCode);
   };
 
   return (
@@ -78,8 +73,7 @@ export default function Home() {
       />
 
       <CodeEditor
-        code={code}
-        onChange={handleCodeChange}
+        onMount={handleEditorMount}
       />
     </main>
   );

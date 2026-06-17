@@ -1,22 +1,22 @@
+"use client";
+
 import Editor from "@monaco-editor/react";
 
-interface CodeEditorProps {
-  code: string;
-  onChange: (
-    value: string | undefined
+interface Props {
+  onMount: (
+    editor: any,
+    monaco: any
   ) => void;
 }
 
 export default function CodeEditor({
-  code,
-  onChange,
-}: CodeEditorProps) {
+  onMount,
+}: Props) {
   return (
     <Editor
       height="100%"
       language="javascript"
-      value={code}
-      onChange={onChange}
+      onMount={onMount}
     />
   );
 }

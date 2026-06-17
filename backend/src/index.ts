@@ -29,41 +29,6 @@ io.on("connection", (socket) => {
   });
 
   socket.on(
-    "send-message",
-    ({
-      roomId,
-      message,
-    }: {
-      roomId: string;
-      message: string;
-    }) => {
-      console.log(
-        `[${roomId}] ${socket.id}: ${message}`
-      );
-
-      io.to(roomId).emit(
-        "receive-message",
-        message
-      );
-    }
-  );
-
-  socket.on(
-    "code-change",
-    ({
-      roomId,
-      code,
-    }: {
-      roomId: string;
-      code: string;
-    }) => {
-      socket
-        .to(roomId)
-        .emit("receive-code", code);
-    }
-  );
-
-  socket.on(
     "yjs-update",
     ({
       roomId,
