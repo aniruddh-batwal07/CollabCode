@@ -4,6 +4,13 @@ import { Server } from "socket.io";
 import cors from "cors";
 import * as Y from "yjs";
 
+import { pool } from "./db/postgres";
+
+import {
+  saveDocument,
+  getDocument,
+} from "./persistence/documentRepository";
+
 const app = express();
 
 app.use(cors());
@@ -30,62 +37,92 @@ app.get("/", (_, res) => {
 io.on("connection", (socket) => {
   console.log(`User connected: ${socket.id}`);
 
-  socket.on("join-room", (roomId: string) => {
-    socket.join(roomId);
+  socket.on(
+    "join-room",
+    async (roomId: string) => {
+      socket.join(roomId);
 
-    socket.data.roomId = roomId;
+      socket.data.roomId = roomId;
 
-    if (!roomUsers.has(roomId)) {
-      roomUsers.set(roomId, new Set());
-    }
+      if (!roomUsers.has(roomId)) {
+        roomUsers.set(roomId, new Set());
+      }
 
-    roomUsers
-      .get(roomId)!
-      .add(socket.id);
+      roomUsers
+        .get(roomId)!
+        .add(socket.id);
 
-    io.to(roomId).emit(
-      "presence-update",
-      Array.from(
-        roomUsers.get(roomId)!
-      )
-    );
-
-    console.log(
-      `${socket.id} joined ${roomId}`
-    );
-
-    const roomState =
-      roomDocs.get(roomId);
-
-    if (roomState) {
-      socket.emit(
-        "document-sync",
-        Array.from(roomState)
+      io.to(roomId).emit(
+        "presence-update",
+        Array.from(
+          roomUsers.get(roomId)!
+        )
       );
+
+      console.log(
+        `${socket.id} joined ${roomId}`
+      );
+
+      let roomState: Uint8Array | undefined | null =
+        roomDocs.get(roomId);
+
+      if (!roomState) {
+        roomState =
+          await getDocument(roomId);
+
+        if (roomState) {
+          roomDocs.set(
+            roomId,
+            roomState
+          );
+        }
+      }
+
+      if (roomState) {
+        socket.emit(
+          "document-sync",
+          Array.from(roomState)
+        );
+      }
     }
-  });
+  );
 
   socket.on(
     "yjs-update",
-    ({
+    async ({
       roomId,
       update,
     }: {
       roomId: string;
       update: number[];
     }) => {
-      const incoming = new Uint8Array(update);
-      const existing = roomDocs.get(roomId);
+      const incoming =
+        new Uint8Array(update);
+
+      const existing =
+        roomDocs.get(roomId);
+
       roomDocs.set(
         roomId,
         existing
-          ? Y.mergeUpdates([existing, incoming])
+          ? Y.mergeUpdates([
+              existing,
+              incoming,
+            ])
           : incoming
+      );
+
+      await saveDocument(
+        roomId,
+        roomDocs.get(roomId)!
       );
 
       socket
         .to(roomId)
-        .emit("yjs-update", update);
+        .emit(
+          "yjs-update",
+          update
+        );
     }
   );
 
@@ -116,6 +153,20 @@ io.on("connection", (socket) => {
 });
 
 const PORT = 5000;
+
+pool
+  .query("SELECT NOW()")
+  .then(() =>
+    console.log(
+      "Database connected"
+    )
+  )
+  .catch((err) =>
+    console.error(
+      "Database connection failed",
+      err
+    )
+  );
 
 server.listen(PORT, () => {
   console.log(
