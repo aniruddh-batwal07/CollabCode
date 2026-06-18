@@ -13,11 +13,17 @@ import { useSocket } from "@/hooks/useSocket";
 
 export default function Home() {
   const [roomId, setRoomId] = useState("room-1");
-  const [users, setUsers] = useState<string[]>([]);
+  const [username, setUsername] = useState("");
+  const [users, setUsers] = useState<{ id: string; username: string }[]>([]);
+  const [cursorUsers, setCursorUsers] =
+    useState<
+      { id: string; username: string; line: number }[]
+    >([]);
 
   // Keep the latest joined roomId available to the reconnect handler
   // without needing it in any dependency array.
   const activeRoomRef = useRef<string | null>(null);
+  const activeUsernameRef = useRef<string>("");
 
   // Store the MonacoBinding so we can call .destroy() on cleanup,
   // preventing duplicate bindings from accumulating on re-mounts.
@@ -30,7 +36,10 @@ export default function Home() {
   useEffect(() => {
     const handleConnect = () => {
       if (activeRoomRef.current) {
-        socket.emit("join-room", activeRoomRef.current);
+        socket.emit("join-room", {
+          roomId: activeRoomRef.current,
+          username: activeUsernameRef.current,
+        });
       }
     };
     socket.on("connect", handleConnect);
@@ -77,7 +86,7 @@ export default function Home() {
     
   }, []); 
 
-  const handlePresenceUpdate = useCallback((updatedUsers: string[]) => {
+  const handlePresenceUpdate = useCallback((updatedUsers: { id: string; username: string }[]) => {
     setUsers(updatedUsers);
   }, []);
 
@@ -93,10 +102,24 @@ export default function Home() {
     }
   );
   useSocket("presence-update", handlePresenceUpdate);
+  useSocket(
+    "cursor-update",
+    (users) => {
+      setCursorUsers(users);
+    }
+  );
 
   // ── Join room ────────────────────────────────────────────────────
+  const handleCursorMove = (line: number) => {
+    socket.emit("cursor-move", {
+      roomId,
+      line,
+    });
+  };
+
   const joinRoom = () => {
     activeRoomRef.current = roomId;
+    activeUsernameRef.current = username;
 
     // Connect the socket on first join (autoConnect: false in socket.ts).
     // On subsequent joins (room switch), the socket is already connected.
@@ -104,7 +127,10 @@ export default function Home() {
       socket.connect();
     }
 
-    socket.emit("join-room", roomId);
+    socket.emit("join-room", {
+      roomId,
+      username,
+    });
   };
 
   // ── MonacoBinding lifecycle ──────────────────────────────────────
@@ -145,6 +171,19 @@ export default function Home() {
 
   return (
     <main className="h-screen flex flex-col">
+      <div className="p-4">
+        <label className="block text-sm font-medium text-slate-700">
+          Username
+        </label>
+        <input
+          type="text"
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
+          className="mt-1 block w-full rounded-md border px-3 py-2"
+          placeholder="Enter your name"
+        />
+      </div>
+
       <RoomControls
         roomId={roomId}
         setRoomId={setRoomId}
@@ -156,16 +195,35 @@ export default function Home() {
         <ul className="mt-2 space-y-1">
           {users.map((user) => (
             <li
-              key={user}
+              key={user.id}
               className="rounded-md bg-slate-100 px-3 py-2"
             >
-              {user}
+              {user.username}
             </li>
           ))}
         </ul>
       </section>
 
-      <CodeEditor onMount={handleEditorMount} />
+      <CodeEditor
+        onMount={handleEditorMount}
+        onCursorMove={handleCursorMove}
+      />
+
+      <section className="p-4">
+        <h2 className="text-lg font-semibold">
+          Cursor Positions
+        </h2>
+        <ul className="mt-2 space-y-1">
+          {cursorUsers.map((user) => (
+            <li
+              key={user.id}
+              className="rounded-md bg-blue-50 px-3 py-2 text-sm"
+            >
+              {user.username} → Line {user.line}
+            </li>
+          ))}
+        </ul>
+      </section>
     </main>
   );
 }

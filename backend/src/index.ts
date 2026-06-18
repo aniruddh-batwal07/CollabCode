@@ -18,6 +18,8 @@ app.use(cors());
 const server = http.createServer(app);
 
 const roomUsers = new Map<string, Set<string>>();
+const userNames = new Map<string, string>();
+const cursorPositions = new Map<string, number>();
 
 const roomDocs = new Map<
   string,
@@ -39,10 +41,17 @@ io.on("connection", (socket) => {
 
   socket.on(
     "join-room",
-    async (roomId: string) => {
+    async ({
+      roomId,
+      username,
+    }: {
+      roomId: string;
+      username: string;
+    }) => {
       socket.join(roomId);
 
       socket.data.roomId = roomId;
+      userNames.set(socket.id, username);
 
       if (!roomUsers.has(roomId)) {
         roomUsers.set(roomId, new Set());
@@ -52,11 +61,19 @@ io.on("connection", (socket) => {
         .get(roomId)!
         .add(socket.id);
 
-      io.to(roomId).emit(
-        "presence-update",
+      const users =
         Array.from(
           roomUsers.get(roomId)!
-        )
+        ).map((id) => ({
+          id,
+          username:
+            userNames.get(id) ||
+            "Anonymous",
+        }));
+
+      io.to(roomId).emit(
+        "presence-update",
+        users
       );
 
       console.log(
@@ -84,6 +101,37 @@ io.on("connection", (socket) => {
           Array.from(roomState)
         );
       }
+    }
+  );
+
+  socket.on(
+    "cursor-move",
+    ({
+      roomId,
+      line,
+    }: {
+      roomId: string;
+      line: number;
+    }) => {
+      cursorPositions.set(socket.id, line);
+
+      const users =
+        Array.from(
+          roomUsers.get(roomId) || []
+        ).map((id) => ({
+          id,
+          username:
+            userNames.get(id) ||
+            "Anonymous",
+          line:
+            cursorPositions.get(id) ||
+            1,
+        }));
+
+      io.to(roomId).emit(
+        "cursor-update",
+        users
+      );
     }
   );
 
@@ -127,8 +175,7 @@ io.on("connection", (socket) => {
   );
 
   socket.on("disconnect", () => {
-    const roomId =
-      socket.data.roomId;
+    const roomId = socket.data.roomId;
 
     if (
       roomId &&
@@ -138,17 +185,23 @@ io.on("connection", (socket) => {
         .get(roomId)!
         .delete(socket.id);
 
-      io.to(roomId).emit(
-        "presence-update",
+      const users =
         Array.from(
           roomUsers.get(roomId)!
-        )
+        ).map((id) => ({
+          id,
+          username:
+            userNames.get(id) ||
+            "Anonymous",
+        }));
+
+      io.to(roomId).emit(
+        "presence-update",
+        users
       );
     }
 
-    console.log(
-      `${socket.id} disconnected`
-    );
+    userNames.delete(socket.id);
   });
 });
 
