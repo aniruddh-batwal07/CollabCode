@@ -5,6 +5,13 @@ import cors from "cors";
 import * as Y from "yjs";
 
 import { initDb } from "./db/postgres";
+import {
+  pubClient,
+  subClient,
+} from "./db/redis";
+
+import { createAdapter }
+from "@socket.io/redis-adapter";
 
 import {
   saveDocument,
@@ -292,7 +299,25 @@ io.on("connection", (socket) => {
   });
 });
 
-const PORT = 5000;
+const PORT = Number(process.env.PORT) || 5000;
+
+async function connectRedis() {
+  await pubClient.connect();
+  await subClient.connect();
+
+  io.adapter(
+    createAdapter(
+      pubClient,
+      subClient
+    )
+  );
+
+  console.log(
+    "Redis connected"
+  );
+}
+
+connectRedis();
 
 initDb()
   .then(() => {
