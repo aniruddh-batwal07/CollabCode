@@ -19,6 +19,7 @@ export default function Home() {
     useState<
       { id: string; username: string; line: number }[]
     >([]);
+  const [snapshots, setSnapshots] = useState<any[]>([]);
 
   // Keep the latest joined roomId available to the reconnect handler
   // without needing it in any dependency array.
@@ -108,6 +109,28 @@ export default function Home() {
       setCursorUsers(users);
     }
   );
+  useSocket("snapshots-list", (data) => {
+    setSnapshots(data);
+  });
+  // Restore: the snapshot is a full encoded Y.Doc state (not an
+  // incremental update). We cannot simply Y.applyUpdate onto the
+  // existing ydoc because Yjs would deduplicate the ops it already
+  // knows (they were applied when the user originally typed them).
+  //
+  // Instead: decode into a temp doc, read the plain text, then
+  // replace ytext content in one transaction so MonacoBinding
+  // sees a single atomic change and stays in sync.
+  useSocket("restore-sync", (update: number[]) => {
+    const tempDoc = new Y.Doc();
+    Y.applyUpdate(tempDoc, new Uint8Array(update));
+    const restoredText = tempDoc.getText("monaco").toString();
+    tempDoc.destroy();
+
+    ydoc.transact(() => {
+      ytext.delete(0, ytext.length);
+      ytext.insert(0, restoredText);
+    }, socket); // origin = socket → updateHandler skips re-emit
+  });
 
   // ── Join room ────────────────────────────────────────────────────
   const handleCursorMove = (line: number) => {
@@ -130,6 +153,17 @@ export default function Home() {
     socket.emit("join-room", {
       roomId,
       username,
+    });
+  };
+
+  const loadSnapshots = () => {
+    socket.emit("get-snapshots", roomId);
+  };
+
+  const restoreSnapshot = (snapshotId: number) => {
+    socket.emit("restore-snapshot", {
+      roomId,
+      snapshotId,
     });
   };
 
@@ -223,6 +257,42 @@ export default function Home() {
             </li>
           ))}
         </ul>
+      </section>
+
+      <section className="p-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold">
+            Version History
+          </h2>
+          <button
+            className="rounded bg-slate-800 px-3 py-2 text-sm text-white"
+            onClick={loadSnapshots}
+          >
+            Load
+          </button>
+        </div>
+
+        <div className="mt-4 space-y-3">
+          {snapshots.map((snapshot) => (
+            <div
+              key={snapshot.id}
+              className="rounded-md bg-slate-100 p-3"
+            >
+              <div className="font-medium">
+                Version #{snapshot.id}
+              </div>
+              <div className="text-sm text-slate-600">
+                {new Date(snapshot.created_at).toLocaleString()}
+              </div>
+              <button
+                className="mt-2 rounded bg-slate-800 px-3 py-2 text-sm text-white"
+                onClick={() => restoreSnapshot(snapshot.id)}
+              >
+                Restore
+              </button>
+            </div>
+          ))}
+        </div>
       </section>
     </main>
   );

@@ -4,12 +4,17 @@ import { Server } from "socket.io";
 import cors from "cors";
 import * as Y from "yjs";
 
-import { pool } from "./db/postgres";
+import { initDb } from "./db/postgres";
 
 import {
   saveDocument,
   getDocument,
 } from "./persistence/documentRepository";
+import {
+  createSnapshot,
+  getSnapshots,
+  getSnapshotById,
+} from "./persistence/snapshotRepository";
 
 const app = express();
 
@@ -25,6 +30,29 @@ const roomDocs = new Map<
   string,
   Uint8Array
 >();
+
+setInterval(async () => {
+  try {
+    for (const [
+      roomId,
+      state,
+    ] of roomDocs.entries()) {
+      await createSnapshot(
+        roomId,
+        state
+      );
+    }
+
+    console.log(
+      "Snapshots saved"
+    );
+  } catch (error) {
+    console.error(
+      "Snapshot job failed",
+      error
+    );
+  }
+}, 30000);
 
 const io = new Server(server, {
   cors: {
@@ -84,14 +112,21 @@ io.on("connection", (socket) => {
         roomDocs.get(roomId);
 
       if (!roomState) {
-        roomState =
+        const dbState =
           await getDocument(roomId);
 
-        if (roomState) {
+        // Re-check roomDocs after the async DB read — a concurrent
+        // yjs-update may have populated it while we were awaiting.
+        // Prefer the in-memory merged state (more recent) over the
+        // DB snapshot (may pre-date edits that arrived during the await).
+        roomState = roomDocs.get(roomId);
+
+        if (!roomState && dbState) {
           roomDocs.set(
             roomId,
-            roomState
+            dbState
           );
+          roomState = dbState;
         }
       }
 
@@ -165,6 +200,8 @@ io.on("connection", (socket) => {
         roomDocs.get(roomId)!
       );
 
+      
+
       socket
         .to(roomId)
         .emit(
@@ -174,6 +211,56 @@ io.on("connection", (socket) => {
     }
   );
 
+  // ── Version History ──────────────────────────────────────────────
+  socket.on(
+    "get-snapshots",
+    async (roomId: string) => {
+      const snapshots =
+        await getSnapshots(roomId);
+
+      socket.emit(
+        "snapshots-list",
+        snapshots
+      );
+    }
+  );
+
+  socket.on(
+    "restore-snapshot",
+    async ({
+      roomId,
+      snapshotId,
+    }: {
+      roomId: string;
+      snapshotId: number;
+    }) => {
+      const snapshot =
+        await getSnapshotById(
+          snapshotId
+        );
+
+      if (!snapshot) {
+        return;
+      }
+
+      roomDocs.set(
+        roomId,
+        snapshot
+      );
+
+      await saveDocument(
+        roomId,
+        snapshot
+      );
+
+      io.to(roomId).emit(
+        "restore-sync",
+        Array.from(snapshot)
+      );
+    }
+  );
+
+  // ── Disconnect ───────────────────────────────────────────────────
   socket.on("disconnect", () => {
     const roomId = socket.data.roomId;
 
@@ -207,22 +294,21 @@ io.on("connection", (socket) => {
 
 const PORT = 5000;
 
-pool
-  .query("SELECT NOW()")
-  .then(() =>
+initDb()
+  .then(() => {
     console.log(
       "Database connected"
-    )
-  )
-  .catch((err) =>
+    );
+    server.listen(PORT, () => {
+      console.log(
+        `Server running on port ${PORT}`
+      );
+    });
+  })
+  .catch((err) => {
     console.error(
-      "Database connection failed",
+      "Database initialisation failed",
       err
-    )
-  );
-
-server.listen(PORT, () => {
-  console.log(
-    `Server running on port ${PORT}`
-  );
-});
+    );
+    process.exit(1);
+  });
