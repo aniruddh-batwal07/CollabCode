@@ -23,9 +23,12 @@ import {
   getSnapshotById,
 } from "./persistence/snapshotRepository";
 
-const app = express();
+import executeRouter from "./routes/execute";
 
-app.use(cors());
+const app = express();
+app.use(express.json());
+app.use(cors({ origin: "http://localhost:3000" }));
+app.use("/execute", executeRouter);
 
 const server = http.createServer(app);
 

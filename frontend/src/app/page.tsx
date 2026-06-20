@@ -20,6 +20,7 @@ export default function Home() {
       { id: string; username: string; line: number }[]
     >([]);
   const [snapshots, setSnapshots] = useState<any[]>([]);
+  const [output, setOutput] = useState("");
 
   // Keep the latest joined roomId available to the reconnect handler
   // without needing it in any dependency array.
@@ -167,6 +168,8 @@ export default function Home() {
     });
   };
 
+  const runCode = async () => {  try {    const response =      await fetch(        "http://localhost:5000/execute",        {          method: "POST",          headers: {            "Content-Type":              "application/json",          },          body: JSON.stringify({            language: "python",            code: ytext.toString(),          }),        }      );    const data =      await response.json();    setOutput(data.output);  } catch (error) {    console.error(error);    setOutput(      "Execution failed"    );  }};
+
   // ── MonacoBinding lifecycle ──────────────────────────────────────
   // If the editor ever remounts (Strict Mode double-invoke, HMR),
   // destroy the previous binding before creating a new one.
@@ -238,10 +241,28 @@ export default function Home() {
         </ul>
       </section>
 
+      <div className="p-4 border-b">
+        <button
+          onClick={runCode}
+          className="      border      px-4      py-2      rounded    "
+        >
+          ▶ Run Code
+        </button>
+      </div>
+
       <CodeEditor
         onMount={handleEditorMount}
         onCursorMove={handleCursorMove}
       />
+
+      <div className="h-40 border-t p-4 overflow-auto">
+        <h2 className="font-semibold">
+          Output
+        </h2>
+        <pre className="mt-2">
+          {output}
+        </pre>
+      </div>
 
       <section className="p-4">
         <h2 className="text-lg font-semibold">
