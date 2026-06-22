@@ -88,21 +88,20 @@ export default function Home() {
     
   }, []); 
 
+  const handleDocumentSync = useCallback((update: number[]) => {
+    Y.applyUpdate(
+      ydoc,
+      new Uint8Array(update),
+      socket
+    );
+  }, []);
+
   const handlePresenceUpdate = useCallback((updatedUsers: { id: string; username: string }[]) => {
     setUsers(updatedUsers);
   }, []);
 
   useSocket("yjs-update", handleYjsUpdate);
-  useSocket(
-    "document-sync",
-    (update: number[]) => {
-      Y.applyUpdate(
-        ydoc,
-        new Uint8Array(update),
-        socket
-      );
-    }
-  );
+  useSocket("document-sync", handleDocumentSync);
   useSocket("presence-update", handlePresenceUpdate);
   useSocket(
     "cursor-update",

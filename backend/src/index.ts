@@ -299,6 +299,7 @@ io.on("connection", (socket) => {
     }
 
     userNames.delete(socket.id);
+    cursorPositions.delete(socket.id);
   });
 });
 

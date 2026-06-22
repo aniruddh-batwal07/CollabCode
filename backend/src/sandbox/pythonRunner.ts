@@ -21,6 +21,7 @@ export async function runPythonCode(
       HostConfig: {
         Memory: 128 * 1024 * 1024,
         NanoCpus: 500000000,
+        NetworkDisabled: true,
       },
     });
 
@@ -32,7 +33,7 @@ export async function runPythonCode(
     follow: true,
   });
 
-  const output = await new Promise<string>((resolve, reject) => {
+  const outputPromise = new Promise<string>((resolve, reject) => {
     const chunks: Buffer[] = [];
     stream.on("data", (chunk: Buffer) => chunks.push(chunk));
     stream.on("end", () => {
@@ -50,6 +51,23 @@ export async function runPythonCode(
     });
     stream.on("error", reject);
   });
+
+  const TIMEOUT_MS = 10_000;
+
+  const timeoutPromise = new Promise<string>((_, reject) =>
+    setTimeout(() => reject(new Error("TIMEOUT")), TIMEOUT_MS)
+  );
+
+  let output: string;
+  try {
+    output = await Promise.race([outputPromise, timeoutPromise]);
+  } catch (err: any) {
+    await container.remove({ force: true });
+    if (err.message === "TIMEOUT") {
+      return "Execution timed out (10s limit exceeded).";
+    }
+    throw err;
+  }
 
   await container.remove({
     force: true,

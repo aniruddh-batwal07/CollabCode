@@ -15,9 +15,9 @@ A Google Docs style collaborative coding platform built using:
 
 - [x] Project Setup
 - [x] Monaco Editor
-- [ ] WebSocket Gateway
-- [ ] Rooms
-- [ ] Yjs Sync
-- [ ] Redis Scaling
-- [ ] Persistence
-- [ ] Docker Sandbox
+- [x] WebSocket Gateway
+- [x] Rooms
+- [x] Yjs Sync
+- [x] Redis Scaling
+- [x] Persistence
+- [x] Docker Sandbox
