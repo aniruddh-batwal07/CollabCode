@@ -384,7 +384,7 @@ export default function Home() {
           </section>
 
           {/* Version History */}
-          <section className="p-3 flex-1">
+          <section className="p-3 flex-1 overflow-hidden">
             <div className="flex items-center justify-between mb-2">
               <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
                 Version History
@@ -397,7 +397,7 @@ export default function Home() {
               </button>
             </div>
 
-            <div className="space-y-2">
+            <div className="space-y-2 max-h-[300px] overflow-y-auto">
               {snapshots.map((snapshot) => (
                 <div
                   key={snapshot.id}
@@ -443,7 +443,7 @@ export default function Home() {
               </h2>
             </div>
             <pre className="flex-1 overflow-auto px-4 py-3 text-sm text-slate-300 font-mono leading-relaxed">
-              {output || <span className="text-slate-600">No output yet</span>}
+              {output || <span className="text-slate-600">Run code to see output...</span>}
             </pre>
           </div>
         </div>

@@ -23,7 +23,7 @@ export default function RoomControls({
         className="border px-4 py-2"
         onClick={joinRoom}
       >
-        Join Room
+        Join
       </button>
     </div>
   );
