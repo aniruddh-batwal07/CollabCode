@@ -35,6 +35,7 @@ const server = http.createServer(app);
 const roomUsers = new Map<string, Set<string>>();
 const userNames = new Map<string, string>();
 const cursorPositions = new Map<string, number>();
+const cursorColumns = new Map<string, number>();
 
 const roomDocs = new Map<
   string,
@@ -154,11 +155,14 @@ io.on("connection", (socket) => {
     ({
       roomId,
       line,
+      column,
     }: {
       roomId: string;
       line: number;
+      column: number;
     }) => {
       cursorPositions.set(socket.id, line);
+      cursorColumns.set(socket.id, column);
 
       const users =
         Array.from(
@@ -170,6 +174,9 @@ io.on("connection", (socket) => {
             "Anonymous",
           line:
             cursorPositions.get(id) ||
+            1,
+          column:
+            cursorColumns.get(id) ||
             1,
         }));
 
@@ -300,6 +307,7 @@ io.on("connection", (socket) => {
 
     userNames.delete(socket.id);
     cursorPositions.delete(socket.id);
+    cursorColumns.delete(socket.id);
   });
 });
 

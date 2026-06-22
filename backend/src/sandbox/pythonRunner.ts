@@ -5,8 +5,7 @@ const docker = new Docker();
 export async function runPythonCode(
   code: string
 ) {
-  const container =
-    await docker.createContainer({
+  const container = (await docker.createContainer({
       Image: "python:3.12-alpine",
 
       Cmd: [
@@ -22,8 +21,8 @@ export async function runPythonCode(
         Memory: 128 * 1024 * 1024,
         NanoCpus: 500000000,
         NetworkDisabled: true,
-      },
-    });
+      } as Docker.HostConfig & { NetworkDisabled: boolean },
+    })) as Docker.Container;
 
   await container.start();
 

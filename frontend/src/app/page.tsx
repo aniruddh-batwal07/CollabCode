@@ -6,7 +6,6 @@ import * as Y from "yjs";
 import { socket } from "@/lib/socket";
 import { ydoc, ytext } from "@/lib/collaboration";
 
-import RoomControls from "@/components/RoomControls";
 import CodeEditor from "@/components/CodeEditor";
 
 import { useSocket } from "@/hooks/useSocket";
@@ -17,8 +16,8 @@ export default function Home() {
   const [users, setUsers] = useState<{ id: string; username: string }[]>([]);
   const [cursorUsers, setCursorUsers] =
     useState<
-      { id: string; username: string; line: number }[]
-    >([]);
+      { id: string; username: string; line: number; column: number }[]
+    >();
   const [snapshots, setSnapshots] = useState<any[]>([]);
   const [output, setOutput] = useState("");
 
@@ -30,6 +29,18 @@ export default function Home() {
   // Store the MonacoBinding so we can call .destroy() on cleanup,
   // preventing duplicate bindings from accumulating on re-mounts.
   const bindingRef = useRef<{ destroy(): void } | null>(null);
+
+  // Holds the live Monaco editor instance so the cursor-update effect
+  // can add decorations and content widgets without re-mounting.
+  const editorRef = useRef<any>(null);
+
+  // Track the IDs of all active collaborator decorations so we can
+  // replace them atomically on every cursor-update.
+  const decorationIdsRef = useRef<string[]>([]);
+
+  // Keep a stable map of content widgets (one per remote socket id)
+  // so we can remove stale ones when a user disconnects.
+  const widgetMapRef = useRef<Map<string, any>>(new Map());
 
   // ── Reconnection handler ─────────────────────────────────────────
   // When the socket reconnects (e.g. after a network interruption),
@@ -100,15 +111,17 @@ export default function Home() {
     setUsers(updatedUsers);
   }, []);
 
+  const handleCursorUpdate = useCallback(
+    (users: { id: string; username: string; line: number; column: number }[]) => {
+      setCursorUsers(users);
+    },
+    []
+  );
+
   useSocket("yjs-update", handleYjsUpdate);
   useSocket("document-sync", handleDocumentSync);
   useSocket("presence-update", handlePresenceUpdate);
-  useSocket(
-    "cursor-update",
-    (users) => {
-      setCursorUsers(users);
-    }
-  );
+  useSocket("cursor-update", handleCursorUpdate);
   useSocket("snapshots-list", (data) => {
     setSnapshots(data);
   });
@@ -133,10 +146,11 @@ export default function Home() {
   });
 
   // ── Join room ────────────────────────────────────────────────────
-  const handleCursorMove = (line: number) => {
+  const handleCursorMove = (line: number, column: number) => {
     socket.emit("cursor-move", {
       roomId,
       line,
+      column,
     });
   };
 
@@ -193,6 +207,9 @@ export default function Home() {
     );
 
     bindingRef.current = binding;
+
+    // Save editor reference for the collaborator cursor effect below.
+    editorRef.current = editor;
   };
 
   // Destroy the binding when the component fully unmounts.
@@ -205,115 +222,232 @@ export default function Home() {
     };
   }, []);
 
+  // ── Collaborator cursors ─────────────────────────────────────────
+  // Runs whenever the server broadcasts a fresh cursor-update.
+  // For every remote user we:
+  //   1. Paint a full-line highlight decoration.
+  //   2. Show/update a content widget with their username label.
+  // Widgets from users no longer in the list are removed.
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor || !cursorUsers) return;
+
+    const myId = socket.id;
+
+    // ── Decorations (line highlights) ──────────────────────────────
+    const newDecorations = cursorUsers
+      .filter((u) => u.id !== myId)
+      .map((u) => ({
+        range: {
+          startLineNumber: u.line,
+          startColumn: 1,
+          endLineNumber: u.line,
+          endColumn: 1,
+        },
+        options: {
+          isWholeLine: true,
+          className: "collaborator-line-highlight",
+        },
+      }));
+
+    decorationIdsRef.current = editor.deltaDecorations(
+      decorationIdsRef.current,
+      newDecorations
+    );
+
+    // ── Content widgets (username labels) ──────────────────────────
+    const currentIds = new Set(cursorUsers.map((u) => u.id));
+
+    // Remove widgets for users who have left.
+    widgetMapRef.current.forEach((widget, id) => {
+      if (!currentIds.has(id) || id === myId) {
+        editor.removeContentWidget(widget);
+        widgetMapRef.current.delete(id);
+      }
+    });
+
+    // Add or update a widget for each remote collaborator.
+    cursorUsers
+      .filter((u) => u.id !== myId)
+      .forEach((u) => {
+        const existingWidget = widgetMapRef.current.get(u.id);
+        if (existingWidget) {
+          editor.removeContentWidget(existingWidget);
+        }
+
+        const widget = {
+          getId: () => `cursor-widget-${u.id}`,
+          getDomNode: () => {
+            const node = document.createElement("div");
+            node.className = "collaborator-cursor-widget";
+            node.textContent = u.username || "Anonymous";
+            return node;
+          },
+          getPosition: () => ({
+            position: { lineNumber: u.line, column: u.column },
+            preference: [1, 2], // ABOVE then BELOW
+          }),
+        };
+
+        editor.addContentWidget(widget);
+        widgetMapRef.current.set(u.id, widget);
+      });
+  }, [cursorUsers]);
+
   return (
-    <main className="h-screen flex flex-col">
-      <div className="p-4">
-        <label className="block text-sm font-medium text-slate-700">
-          Username
-        </label>
+    <div className="h-screen flex flex-col bg-[#0a0a0a] text-slate-200 overflow-hidden">
+
+      {/* ── Top Header ─────────────────────────────────────────────── */}
+      <header className="flex items-center gap-3 px-4 py-2.5 border-b border-slate-700/60 bg-[#111111] shrink-0">
+        <span className="text-base font-bold tracking-tight text-white mr-2 whitespace-nowrap">
+          ⚡ CollabCode
+        </span>
+
         <input
           type="text"
           value={username}
           onChange={(e) => setUsername(e.target.value)}
-          className="mt-1 block w-full rounded-md border px-3 py-2"
-          placeholder="Enter your name"
+          className="w-36 rounded bg-slate-800 border border-slate-700 px-2.5 py-1.5 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-slate-500"
+          placeholder="Username"
         />
-      </div>
 
-      <RoomControls
-        roomId={roomId}
-        setRoomId={setRoomId}
-        joinRoom={joinRoom}
-      />
+        <input
+          className="w-36 rounded bg-slate-800 border border-slate-700 px-2.5 py-1.5 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-slate-500"
+          value={roomId}
+          onChange={(e) => setRoomId(e.target.value)}
+          placeholder="Room ID"
+        />
 
-      <section className="p-4">
-        <h2 className="text-lg font-semibold">Online Users</h2>
-        <ul className="mt-2 space-y-1">
-          {users.map((user) => (
-            <li
-              key={user.id}
-              className="rounded-md bg-slate-100 px-3 py-2"
-            >
-              {user.username}
-            </li>
-          ))}
-        </ul>
-      </section>
-
-      <div className="p-4 border-b">
         <button
-          onClick={runCode}
-          className="      border      px-4      py-2      rounded    "
+          className="rounded bg-slate-700 hover:bg-slate-600 px-3 py-1.5 text-sm text-slate-100 transition-colors"
+          onClick={joinRoom}
         >
-          ▶ Run Code
+          Join Room
         </button>
-      </div>
 
-      <CodeEditor
-        onMount={handleEditorMount}
-        onCursorMove={handleCursorMove}
-      />
-
-      <div className="h-40 border-t p-4 overflow-auto">
-        <h2 className="font-semibold">
-          Output
-        </h2>
-        <pre className="mt-2">
-          {output}
-        </pre>
-      </div>
-
-      <section className="p-4">
-        <h2 className="text-lg font-semibold">
-          Cursor Positions
-        </h2>
-        <ul className="mt-2 space-y-1">
-          {cursorUsers.map((user) => (
-            <li
-              key={user.id}
-              className="rounded-md bg-blue-50 px-3 py-2 text-sm"
-            >
-              {user.username} → Line {user.line}
-            </li>
-          ))}
-        </ul>
-      </section>
-
-      <section className="p-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold">
-            Version History
-          </h2>
+        <div className="ml-auto">
           <button
-            className="rounded bg-slate-800 px-3 py-2 text-sm text-white"
-            onClick={loadSnapshots}
+            onClick={runCode}
+            className="rounded bg-emerald-700 hover:bg-emerald-600 px-4 py-1.5 text-sm font-medium text-white transition-colors"
           >
-            Load
+            ▶ Run Code
           </button>
         </div>
+      </header>
 
-        <div className="mt-4 space-y-3">
-          {snapshots.map((snapshot) => (
-            <div
-              key={snapshot.id}
-              className="rounded-md bg-slate-100 p-3"
-            >
-              <div className="font-medium">
-                Version #{snapshot.id}
-              </div>
-              <div className="text-sm text-slate-600">
-                {new Date(snapshot.created_at).toLocaleString()}
-              </div>
+      {/* ── Main Content ────────────────────────────────────────────── */}
+      <div className="flex flex-1 overflow-hidden">
+
+        {/* ── Left Sidebar ──────────────────────────────────────────── */}
+        <aside className="w-80 shrink-0 flex flex-col border-r border-slate-700/60 bg-[#111111] overflow-y-auto">
+
+          {/* Online Users */}
+          <section className="p-3 border-b border-slate-700/60">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">
+              Online Users
+            </h2>
+            <ul className="space-y-1">
+              {users.map((user) => (
+                <li
+                  key={user.id}
+                  className="flex items-center gap-2 rounded px-2 py-1.5 bg-slate-800/60 text-sm text-slate-300"
+                >
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shrink-0" />
+                  {user.username}
+                </li>
+              ))}
+              {users.length === 0 && (
+                <li className="text-xs text-slate-600 px-2">No users yet</li>
+              )}
+            </ul>
+          </section>
+
+          {/* Cursor Positions */}
+          <section className="p-3 border-b border-slate-700/60">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">
+              Cursor Positions
+            </h2>
+            <ul className="space-y-1">
+              {(cursorUsers ?? []).map((user) => (
+                <li
+                  key={user.id}
+                  className="flex items-center justify-between rounded px-2 py-1.5 bg-slate-800/60 text-sm text-slate-300"
+                >
+                  <span>{user.username}</span>
+                  <span className="text-xs text-slate-500">L {user.line}</span>
+                </li>
+              ))}
+              {(cursorUsers ?? []).length === 0 && (
+                <li className="text-xs text-slate-600 px-2">No cursors yet</li>
+              )}
+            </ul>
+          </section>
+
+          {/* Version History */}
+          <section className="p-3 flex-1">
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                Version History
+              </h2>
               <button
-                className="mt-2 rounded bg-slate-800 px-3 py-2 text-sm text-white"
-                onClick={() => restoreSnapshot(snapshot.id)}
+                className="rounded bg-slate-700 hover:bg-slate-600 px-2 py-1 text-xs text-slate-300 transition-colors"
+                onClick={loadSnapshots}
               >
-                Restore
+                Load
               </button>
             </div>
-          ))}
+
+            <div className="space-y-2">
+              {snapshots.map((snapshot) => (
+                <div
+                  key={snapshot.id}
+                  className="rounded border border-slate-700/60 bg-slate-800/40 p-2"
+                >
+                  <div className="text-sm font-semibold text-slate-200">
+                    Version #{snapshot.id}
+                  </div>
+                  <div className="text-xs text-slate-600 mt-0.5">
+                    {new Date(snapshot.created_at).toLocaleString()}
+                  </div>
+                  <button
+                    className="mt-1.5 w-full rounded bg-slate-700 hover:bg-slate-600 px-2 py-1 text-xs text-slate-300 transition-colors"
+                    onClick={() => restoreSnapshot(snapshot.id)}
+                  >
+                    Restore
+                  </button>
+                </div>
+              ))}
+              {snapshots.length === 0 && (
+                <p className="text-xs text-slate-600">No snapshots loaded</p>
+              )}
+            </div>
+          </section>
+        </aside>
+
+        {/* ── Editor + Output ───────────────────────────────────────── */}
+        <div className="flex flex-1 flex-col overflow-hidden">
+
+          {/* Monaco Editor */}
+          <div className="flex-1 overflow-hidden">
+            <CodeEditor
+              onMount={handleEditorMount}
+              onCursorMove={handleCursorMove}
+            />
+          </div>
+
+          {/* Output Panel */}
+          <div className="h-40 shrink-0 border-t border-slate-700/60 bg-[#111111] flex flex-col">
+            <div className="flex items-center px-4 py-2 border-b border-slate-700/60">
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                Output
+              </h2>
+            </div>
+            <pre className="flex-1 overflow-auto px-4 py-3 text-sm text-slate-300 font-mono leading-relaxed">
+              {output || <span className="text-slate-600">No output yet</span>}
+            </pre>
+          </div>
         </div>
-      </section>
-    </main>
+      </div>
+    </div>
   );
 }

@@ -7,7 +7,7 @@ interface Props {
     editor: any,
     monaco: any
   ) => void;
-  onCursorMove: (line: number) => void;
+  onCursorMove: (line: number, column: number) => void;
 }
 
 export default function CodeEditor({
@@ -18,12 +18,14 @@ export default function CodeEditor({
     <Editor
       height="100%"
       language="javascript"
+      theme="vs-dark"
       onMount={(editor, monaco) => {
         onMount(editor, monaco);
         editor.onDidChangeCursorPosition(
           (event) => {
             onCursorMove(
-              event.position.lineNumber
+              event.position.lineNumber,
+              event.position.column
             );
           }
         );
