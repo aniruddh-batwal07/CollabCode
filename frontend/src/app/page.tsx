@@ -7,45 +7,28 @@ import { socket } from "@/lib/socket";
 import { ydoc, ytext } from "@/lib/collaboration";
 
 import CodeEditor from "@/components/CodeEditor";
-
 import { useSocket } from "@/hooks/useSocket";
+
+const BACKEND_URL =
+  process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:5000";
 
 export default function Home() {
   const [roomId, setRoomId] = useState("room-1");
   const [username, setUsername] = useState("");
   const [users, setUsers] = useState<{ id: string; username: string }[]>([]);
-  const [cursorUsers, setCursorUsers] =
-    useState<
-      { id: string; username: string; line: number; column: number }[]
-    >();
+  const [cursorUsers, setCursorUsers] = useState<
+    { id: string; username: string; line: number; column: number }[]
+  >([]);
   const [snapshots, setSnapshots] = useState<any[]>([]);
   const [output, setOutput] = useState("");
 
-  // Keep the latest joined roomId available to the reconnect handler
-  // without needing it in any dependency array.
   const activeRoomRef = useRef<string | null>(null);
   const activeUsernameRef = useRef<string>("");
-
-  // Store the MonacoBinding so we can call .destroy() on cleanup,
-  // preventing duplicate bindings from accumulating on re-mounts.
   const bindingRef = useRef<{ destroy(): void } | null>(null);
-
-  // Holds the live Monaco editor instance so the cursor-update effect
-  // can add decorations and content widgets without re-mounting.
   const editorRef = useRef<any>(null);
-
-  // Track the IDs of all active collaborator decorations so we can
-  // replace them atomically on every cursor-update.
   const decorationIdsRef = useRef<string[]>([]);
-
-  // Keep a stable map of content widgets (one per remote socket id)
-  // so we can remove stale ones when a user disconnects.
   const widgetMapRef = useRef<Map<string, any>>(new Map());
 
-  // ── Reconnection handler ─────────────────────────────────────────
-  // When the socket reconnects (e.g. after a network interruption),
-  // the server-side socket.data is gone. Re-emit join-room so the
-  // server re-adds this client to the room and presence list.
   useEffect(() => {
     const handleConnect = () => {
       if (activeRoomRef.current) {
@@ -59,57 +42,36 @@ export default function Home() {
     return () => {
       socket.off("connect", handleConnect);
     };
-  }, []); // socket is a module singleton — stable reference.
+  }, []);
 
-  // ── Yjs → Socket (local updates only) ───────────────────────────
-  // THE KEY FIX: Y.applyUpdate() below passes `socket` as the origin.
-  // Here we check that origin — if it equals `socket` the update came
-  // from the network, so we skip re-emitting it to avoid an infinite
-  // feedback loop:
-  //   remote update → applyUpdate → ydoc fires "update" →
-  //   socket.emit → backend relays → back to us → loop ✗
   useEffect(() => {
     const updateHandler = (update: Uint8Array, origin: unknown) => {
-      if (origin === socket) return; // Network update — do not re-emit.
-
+      if (origin === socket) return;
       socket.emit("yjs-update", {
         roomId: activeRoomRef.current,
         update: Array.from(update),
       });
     };
-
     ydoc.on("update", updateHandler);
     return () => {
       ydoc.off("update", updateHandler);
     };
-  }, []); // ydoc and socket are module-level singletons — always stable.
+  }, []);
 
-  // ── Socket → Yjs ────────────────────────────────────────────────
-  // Wrapped in useCallback so useSocket's useEffect dependency is
-  // stable and the listener is NOT torn down/re-added on every render.
   const handleYjsUpdate = useCallback((update: number[]) => {
-    
-
-    Y.applyUpdate(
-      ydoc,
-      new Uint8Array(update),
-      socket
-    );
-
-    
-  }, []); 
+    Y.applyUpdate(ydoc, new Uint8Array(update), socket);
+  }, []);
 
   const handleDocumentSync = useCallback((update: number[]) => {
-    Y.applyUpdate(
-      ydoc,
-      new Uint8Array(update),
-      socket
-    );
+    Y.applyUpdate(ydoc, new Uint8Array(update), socket);
   }, []);
 
-  const handlePresenceUpdate = useCallback((updatedUsers: { id: string; username: string }[]) => {
-    setUsers(updatedUsers);
-  }, []);
+  const handlePresenceUpdate = useCallback(
+    (updatedUsers: { id: string; username: string }[]) => {
+      setUsers(updatedUsers);
+    },
+    []
+  );
 
   const handleCursorUpdate = useCallback(
     (users: { id: string; username: string; line: number; column: number }[]) => {
@@ -118,22 +80,11 @@ export default function Home() {
     []
   );
 
-  useSocket("yjs-update", handleYjsUpdate);
-  useSocket("document-sync", handleDocumentSync);
-  useSocket("presence-update", handlePresenceUpdate);
-  useSocket("cursor-update", handleCursorUpdate);
-  useSocket("snapshots-list", (data) => {
+  const handleSnapshotsList = useCallback((data: any[]) => {
     setSnapshots(data);
-  });
-  // Restore: the snapshot is a full encoded Y.Doc state (not an
-  // incremental update). We cannot simply Y.applyUpdate onto the
-  // existing ydoc because Yjs would deduplicate the ops it already
-  // knows (they were applied when the user originally typed them).
-  //
-  // Instead: decode into a temp doc, read the plain text, then
-  // replace ytext content in one transaction so MonacoBinding
-  // sees a single atomic change and stays in sync.
-  useSocket("restore-sync", (update: number[]) => {
+  }, []);
+
+  const handleRestoreSync = useCallback((update: number[]) => {
     const tempDoc = new Y.Doc();
     Y.applyUpdate(tempDoc, new Uint8Array(update));
     const restoredText = tempDoc.getText("monaco").toString();
@@ -142,32 +93,29 @@ export default function Home() {
     ydoc.transact(() => {
       ytext.delete(0, ytext.length);
       ytext.insert(0, restoredText);
-    }, socket); // origin = socket → updateHandler skips re-emit
-  });
+    }, socket);
+  }, []);
 
-  // ── Join room ────────────────────────────────────────────────────
+  useSocket("yjs-update", handleYjsUpdate);
+  useSocket("document-sync", handleDocumentSync);
+  useSocket("presence-update", handlePresenceUpdate);
+  useSocket("cursor-update", handleCursorUpdate);
+  useSocket("snapshots-list", handleSnapshotsList);
+  useSocket("restore-sync", handleRestoreSync);
+
   const handleCursorMove = (line: number, column: number) => {
-    socket.emit("cursor-move", {
-      roomId,
-      line,
-      column,
-    });
+    socket.emit("cursor-move", { roomId, line, column });
   };
 
   const joinRoom = () => {
     activeRoomRef.current = roomId;
     activeUsernameRef.current = username;
 
-    // Connect the socket on first join (autoConnect: false in socket.ts).
-    // On subsequent joins (room switch), the socket is already connected.
-    if (!socket.connected) {
+    if (socket.connected) {
+      socket.emit("join-room", { roomId, username });
+    } else {
       socket.connect();
     }
-
-    socket.emit("join-room", {
-      roomId,
-      username,
-    });
   };
 
   const loadSnapshots = () => {
@@ -175,19 +123,24 @@ export default function Home() {
   };
 
   const restoreSnapshot = (snapshotId: number) => {
-    socket.emit("restore-snapshot", {
-      roomId,
-      snapshotId,
-    });
+    socket.emit("restore-snapshot", { roomId, snapshotId });
   };
 
-  const runCode = async () => {  try {    const response =      await fetch(        "http://localhost:5000/execute",        {          method: "POST",          headers: {            "Content-Type":              "application/json",          },          body: JSON.stringify({            language: "python",            code: ytext.toString(),          }),        }      );    const data =      await response.json();    setOutput(data.output);  } catch (error) {    console.error(error);    setOutput(      "Execution failed"    );  }};
+  const runCode = async () => {
+    try {
+      const response = await fetch(`${BACKEND_URL}/execute`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ language: "python", code: ytext.toString() }),
+      });
+      const data = await response.json();
+      setOutput(data.output ?? data.error ?? "No output");
+    } catch (error) {
+      console.error(error);
+      setOutput("Execution failed");
+    }
+  };
 
-  // ── MonacoBinding lifecycle ──────────────────────────────────────
-  // If the editor ever remounts (Strict Mode double-invoke, HMR),
-  // destroy the previous binding before creating a new one.
-  // Without this, two bindings share one Y.Text and every keystroke
-  // inserts the character twice.
   const handleEditorMount = async (editor: any, _monaco: any) => {
     const model = editor.getModel();
     if (!model) return;
@@ -198,21 +151,11 @@ export default function Home() {
     }
 
     const { MonacoBinding } = await import("y-monaco");
-
-    const binding = new MonacoBinding(
-      ytext,
-      model,
-      new Set([editor]),
-      null
-    );
-
+    const binding = new MonacoBinding(ytext, model, new Set([editor]), null);
     bindingRef.current = binding;
-
-    // Save editor reference for the collaborator cursor effect below.
     editorRef.current = editor;
   };
 
-  // Destroy the binding when the component fully unmounts.
   useEffect(() => {
     return () => {
       if (bindingRef.current) {
@@ -222,19 +165,12 @@ export default function Home() {
     };
   }, []);
 
-  // ── Collaborator cursors ─────────────────────────────────────────
-  // Runs whenever the server broadcasts a fresh cursor-update.
-  // For every remote user we:
-  //   1. Paint a full-line highlight decoration.
-  //   2. Show/update a content widget with their username label.
-  // Widgets from users no longer in the list are removed.
   useEffect(() => {
     const editor = editorRef.current;
-    if (!editor || !cursorUsers) return;
+    if (!editor || !cursorUsers.length) return;
 
     const myId = socket.id;
 
-    // ── Decorations (line highlights) ──────────────────────────────
     const newDecorations = cursorUsers
       .filter((u) => u.id !== myId)
       .map((u) => ({
@@ -255,10 +191,8 @@ export default function Home() {
       newDecorations
     );
 
-    // ── Content widgets (username labels) ──────────────────────────
     const currentIds = new Set(cursorUsers.map((u) => u.id));
 
-    // Remove widgets for users who have left.
     widgetMapRef.current.forEach((widget, id) => {
       if (!currentIds.has(id) || id === myId) {
         editor.removeContentWidget(widget);
@@ -266,7 +200,6 @@ export default function Home() {
       }
     });
 
-    // Add or update a widget for each remote collaborator.
     cursorUsers
       .filter((u) => u.id !== myId)
       .forEach((u) => {
@@ -285,7 +218,7 @@ export default function Home() {
           },
           getPosition: () => ({
             position: { lineNumber: u.line, column: u.column },
-            preference: [1, 2], // ABOVE then BELOW
+            preference: [1, 2],
           }),
         };
 
@@ -296,8 +229,6 @@ export default function Home() {
 
   return (
     <div className="h-screen flex flex-col bg-[#0a0a0a] text-slate-200 overflow-hidden">
-
-      {/* ── Top Header ─────────────────────────────────────────────── */}
       <header className="flex items-center gap-3 px-4 py-2.5 border-b border-slate-700/60 bg-[#111111] shrink-0">
         <span className="text-base font-bold tracking-tight text-white mr-2 whitespace-nowrap">
           ⚡ CollabCode
@@ -335,13 +266,8 @@ export default function Home() {
         </div>
       </header>
 
-      {/* ── Main Content ────────────────────────────────────────────── */}
       <div className="flex flex-1 overflow-hidden">
-
-        {/* ── Left Sidebar ──────────────────────────────────────────── */}
         <aside className="w-80 shrink-0 flex flex-col border-r border-slate-700/60 bg-[#111111] overflow-y-auto">
-
-          {/* Online Users */}
           <section className="p-3 border-b border-slate-700/60">
             <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">
               Online Users
@@ -362,13 +288,12 @@ export default function Home() {
             </ul>
           </section>
 
-          {/* Cursor Positions */}
           <section className="p-3 border-b border-slate-700/60">
             <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">
               Cursor Positions
             </h2>
             <ul className="space-y-1">
-              {(cursorUsers ?? []).map((user) => (
+              {cursorUsers.map((user) => (
                 <li
                   key={user.id}
                   className="flex items-center justify-between rounded px-2 py-1.5 bg-slate-800/60 text-sm text-slate-300"
@@ -377,13 +302,12 @@ export default function Home() {
                   <span className="text-xs text-slate-500">L {user.line}</span>
                 </li>
               ))}
-              {(cursorUsers ?? []).length === 0 && (
+              {cursorUsers.length === 0 && (
                 <li className="text-xs text-slate-600 px-2">No cursors yet</li>
               )}
             </ul>
           </section>
 
-          {/* Version History */}
           <section className="p-3 flex-1 overflow-hidden">
             <div className="flex items-center justify-between mb-2">
               <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
@@ -424,18 +348,11 @@ export default function Home() {
           </section>
         </aside>
 
-        {/* ── Editor + Output ───────────────────────────────────────── */}
         <div className="flex flex-1 flex-col overflow-hidden">
-
-          {/* Monaco Editor */}
           <div className="flex-1 overflow-hidden">
-            <CodeEditor
-              onMount={handleEditorMount}
-              onCursorMove={handleCursorMove}
-            />
+            <CodeEditor onMount={handleEditorMount} onCursorMove={handleCursorMove} />
           </div>
 
-          {/* Output Panel */}
           <div className="h-40 shrink-0 border-t border-slate-700/60 bg-[#111111] flex flex-col">
             <div className="flex items-center px-4 py-2 border-b border-slate-700/60">
               <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
