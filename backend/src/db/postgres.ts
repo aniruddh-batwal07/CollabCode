@@ -1,11 +1,16 @@
 import { Pool } from "pg";
 
+const connectionString = process.env.DATABASE_URL;
+
+if (!connectionString) {
+  throw new Error("DATABASE_URL environment variable is not set");
+}
+
 export const pool = new Pool({
-  host: "localhost",
-  port: 5432,
-  user: "postgres",
-  password: "postgres123",
-  database: "realtime_editor",
+  connectionString,
+  ssl: connectionString.includes("supabase")
+    ? { rejectUnauthorized: false }
+    : false,
 });
 
 export async function initDb(): Promise<void> {

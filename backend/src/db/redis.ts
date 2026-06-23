@@ -1,9 +1,11 @@
 import { createClient } from "redis";
 
-export const pubClient =
-  createClient({
-    url: "redis://localhost:6379",
-  });
+if (!process.env.REDIS_URL) {
+  throw new Error("REDIS_URL environment variable is not set");
+}
 
-export const subClient =
-  pubClient.duplicate();
+export const pubClient = createClient({
+  url: process.env.REDIS_URL,
+});
+
+export const subClient = pubClient.duplicate();

@@ -11,7 +11,7 @@ import {
 } from "./db/redis";
 
 import { createAdapter }
-from "@socket.io/redis-adapter";
+  from "@socket.io/redis-adapter";
 
 import {
   saveDocument,
@@ -206,9 +206,9 @@ io.on("connection", (socket) => {
         roomId,
         existing
           ? Y.mergeUpdates([
-              existing,
-              incoming,
-            ])
+            existing,
+            incoming,
+          ])
           : incoming
       );
 
@@ -217,7 +217,7 @@ io.on("connection", (socket) => {
         roomDocs.get(roomId)!
       );
 
-      
+
 
       socket
         .to(roomId)
