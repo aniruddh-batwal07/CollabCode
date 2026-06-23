@@ -26,10 +26,15 @@ CollabCode is a production-grade real-time collaborative code editor inspired by
 
 ---
 
+## Preview
+
+![CollabCode](./docs/CollabCode.png)
+
+---
+
 ## Demo
 
-<!-- Replace this line with: ![CollabCode demo](./docs/demo.gif) -->
-> 🎥 **Demo GIF** — Record with [ScreenToGif](https://www.screentogif.com/) or [Kap](https://getkap.co/): join a room, type in two tabs, move cursors, restore a snapshot. Save as `docs/demo.gif` and replace the comment above.
+<video src="./docs/demo.mp4" controls width="100%"></video>
 
 ---
 
@@ -195,8 +200,8 @@ collabcode/
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/aniruddh-batwal07/realtime-collaborative-code-editor.git
-cd realtime-collaborative-code-editor
+git clone https://github.com/aniruddh-batwal07/CollabCode.git
+cd CollabCode
 ```
 
 ### 2. Start Infrastructure
