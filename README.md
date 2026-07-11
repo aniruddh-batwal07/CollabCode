@@ -28,7 +28,7 @@ CollabCode is a production-grade real-time collaborative code editor inspired by
 
 ## Preview
 
-![CollabCode](./docs/CollabCode.png)
+![CollabCode — Landing Page and Editor](./docs/CollabCode.png)
 
 ---
 
@@ -47,12 +47,18 @@ CollabCode is a production-grade real-time collaborative code editor inspired by
 | Redis Pub/Sub | Verified via `@socket.io/redis-adapter` (Upstash TLS) |
 | Snapshot interval | Every 30 s for active rooms |
 | DB writes per edit | 1 upsert (documents table) per Yjs update |
-| Test suite | 15 tests — 4 unit (document repo) + 5 unit (snapshot repo) + 6 integration (socket) |
+| Test suite | 14 tests — 4 unit (document repo) + 4 unit (snapshot repo) + 6 integration (socket) |
 | Build time on Render | ~10 s (`tsc` clean compile) |
 
 ---
 
 ## Features
+
+### 🚀 Getting Started
+- **Landing page** — project overview with Create Room and Join Room entry points
+- **Create Room** — generates a unique room ID automatically; copy it instantly from the modal before entering the editor
+- **Join Room** — enter any existing room ID and a username to collaborate
+- **Copy Room ID** — one-click copy button inside the Create Room modal with a brief checkmark confirmation
 
 ### ✏️ Real-Time Collaboration
 - **Simultaneous multi-user editing** powered by Yjs CRDT synchronization
@@ -72,11 +78,15 @@ CollabCode is a production-grade real-time collaborative code editor inspired by
 - **Snapshot restoration** — restore any previous version with one click
 
 ### ⚙️ Code Execution Sandbox
-- **Docker-based execution** — each run is isolated in a fresh container (local dev only)
-- **Python code execution** with real-time output
-- **Resource limits** — CPU, memory, and timeout constraints per run
+- **Docker-based execution** — each run is isolated in a fresh `python:3.12-alpine` container
+- **Python code execution** with captured stdout/stderr output
+- **Resource limits** — 128 MB memory, 0.5 CPU, 10-second timeout per run
 - **Network isolation** — sandboxed containers have no external network access
-- **Output panel** — view stdout/stderr directly in the editor UI
+- **Output panel** — view execution results directly in the editor UI
+
+> **Local development:** The sandbox is fully functional. Code runs inside isolated Docker containers with all resource constraints enforced.
+>
+> **Production (hosted demo):** The sandbox is intentionally disabled. Render's free tier does not support running nested Docker containers. The `/execute` endpoint returns a `503` with an explanatory message. All collaboration features remain fully functional.
 
 ---
 
@@ -179,8 +189,8 @@ collabcode/
 │       ├── sandbox/           # Docker execution runner (local dev)
 │       └── index.ts           # Server entry point
 │
-├── shared/                    # Shared TypeScript types
-├── docs/                      # Architecture notes
+├── shared/                    # Reserved for shared TypeScript types (currently unused)
+├── docs/                      # Architecture notes and demo assets
 ├── docker-compose.yml         # Local development stack
 ├── render.yaml                # Render deployment config
 └── README.md
@@ -232,7 +242,12 @@ The frontend starts on `http://localhost:3000`.
 
 ### 5. Open a Room
 
-Navigate to `http://localhost:3000`, enter a username and room ID, and click **Join Room**. Open the same URL in a second browser tab with the same room ID to test real-time collaboration.
+Navigate to `http://localhost:3000`. You will see the CollabCode landing page.
+
+- Click **+ Create Room** to auto-generate a room ID. Copy it from the modal, enter a username, and click **Create →**.
+- Or click **→ Join Room**, paste an existing room ID, enter a username, and click **Join →**.
+
+Open the same URL in a second browser tab and join the same room ID to test real-time collaboration.
 
 ---
 
@@ -245,7 +260,11 @@ Navigate to `http://localhost:3000`, enter a username and room ID, and click **J
 | **Database** | Supabase | — |
 | **Redis** | Upstash | — |
 
-> The Docker execution sandbox is disabled on hosted deployments (Render free tier does not provide Docker). Code execution returns a 503 in production; it works fully in local development.
+### Execution Sandbox
+
+**Local development** — The sandbox is fully available. Python code runs inside an isolated `python:3.12-alpine` Docker container with CPU, memory, timeout, and network restrictions enforced. Uncomment the execution logic in `backend/src/routes/execute.ts` to enable it locally.
+
+**Production deployment** — The sandbox is intentionally disabled. Render's free tier does not support running nested Docker containers. The `/execute` API returns a `503` with an informative message instead of executing code. The sandbox implementation remains in the codebase (`backend/src/sandbox/pythonRunner.ts`) and is not a missing or incomplete feature.
 
 ---
 

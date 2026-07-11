@@ -1,370 +1,300 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
-import * as Y from "yjs";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 
-import { socket } from "@/lib/socket";
-import { ydoc, ytext } from "@/lib/collaboration";
+function generateRoomId(): string {
+  const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+  let id = "room-";
+  for (let i = 0; i < 6; i++) {
+    id += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return id;
+}
 
-import CodeEditor from "@/components/CodeEditor";
-import { useSocket } from "@/hooks/useSocket";
+const FEATURES = [
+  { icon: "⚡", title: "Real-Time Collaboration", desc: "Every keystroke syncs instantly across all connected clients with sub-100ms latency." },
+  { icon: "🔄", title: "Conflict-Free CRDT Sync", desc: "Yjs CRDT guarantees correctness even during concurrent edits and network partitions." },
+  { icon: "👥", title: "Live Collaborator Cursors", desc: "See exactly where teammates are editing, rendered directly inside Monaco." },
+  { icon: "🕒", title: "Version History", desc: "Automatic snapshots every 30 seconds. Restore any previous state instantly." },
+  { icon: "⚙", title: "Docker Sandbox", desc: "Execute Python code safely in an isolated Docker container with captured output." },
+  { icon: "📡", title: "Redis Pub/Sub Scaling", desc: "Socket.IO backed by Redis adapter for horizontal scaling across multiple servers." },
+];
 
-const BACKEND_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:5000";
+const TECH_STACK = [
+  { name: "Yjs", desc: "CRDT engine" },
+  { name: "Socket.IO", desc: "WebSocket transport" },
+  { name: "Redis", desc: "Pub/Sub & scaling" },
+  { name: "PostgreSQL", desc: "Snapshot storage" },
+  { name: "Monaco Editor", desc: "VS Code engine" },
+  { name: "Next.js", desc: "React framework" },
+];
 
-export default function Home() {
-  const [roomId, setRoomId] = useState("room-1");
-  const [username, setUsername] = useState("");
-  const [users, setUsers] = useState<{ id: string; username: string }[]>([]);
-  const [cursorUsers, setCursorUsers] = useState<
-    { id: string; username: string; line: number; column: number }[]
-  >([]);
-  const [snapshots, setSnapshots] = useState<any[]>([]);
-  const [output, setOutput] = useState("");
+export default function LandingPage() {
+  const router = useRouter();
+  const [showJoin, setShowJoin] = useState(false);
+  const [joinUsername, setJoinUsername] = useState("");
+  const [joinRoomId, setJoinRoomId] = useState("");
+  const [joinError, setJoinError] = useState("");
+  const [isCreating, setIsCreating] = useState(false);
+  const [isCopied, setIsCopied] = useState(false);
 
-  const activeRoomRef = useRef<string | null>(null);
-  const activeUsernameRef = useRef<string>("");
-  const bindingRef = useRef<{ destroy(): void } | null>(null);
-  const editorRef = useRef<any>(null);
-  const decorationIdsRef = useRef<string[]>([]);
-  const widgetMapRef = useRef<Map<string, any>>(new Map());
-
-  useEffect(() => {
-    const handleConnect = () => {
-      if (activeRoomRef.current) {
-        socket.emit("join-room", {
-          roomId: activeRoomRef.current,
-          username: activeUsernameRef.current,
-        });
-      }
-    };
-    socket.on("connect", handleConnect);
-    return () => {
-      socket.off("connect", handleConnect);
-    };
-  }, []);
-
-  useEffect(() => {
-    const updateHandler = (update: Uint8Array, origin: unknown) => {
-      if (origin === socket) return;
-      socket.emit("yjs-update", {
-        roomId: activeRoomRef.current,
-        update: Array.from(update),
-      });
-    };
-    ydoc.on("update", updateHandler);
-    return () => {
-      ydoc.off("update", updateHandler);
-    };
-  }, []);
-
-  const handleYjsUpdate = useCallback((update: number[]) => {
-    Y.applyUpdate(ydoc, new Uint8Array(update), socket);
-  }, []);
-
-  const handleDocumentSync = useCallback((update: number[]) => {
-    Y.applyUpdate(ydoc, new Uint8Array(update), socket);
-  }, []);
-
-  const handlePresenceUpdate = useCallback(
-    (updatedUsers: { id: string; username: string }[]) => {
-      setUsers(updatedUsers);
-    },
-    []
-  );
-
-  const handleCursorUpdate = useCallback(
-    (users: { id: string; username: string; line: number; column: number }[]) => {
-      setCursorUsers(users);
-    },
-    []
-  );
-
-  const handleSnapshotsList = useCallback((data: any[]) => {
-    setSnapshots(data);
-  }, []);
-
-  const handleRestoreSync = useCallback((update: number[]) => {
-    const tempDoc = new Y.Doc();
-    Y.applyUpdate(tempDoc, new Uint8Array(update));
-    const restoredText = tempDoc.getText("monaco").toString();
-    tempDoc.destroy();
-
-    ydoc.transact(() => {
-      ytext.delete(0, ytext.length);
-      ytext.insert(0, restoredText);
-    }, socket);
-  }, []);
-
-  useSocket("yjs-update", handleYjsUpdate);
-  useSocket("document-sync", handleDocumentSync);
-  useSocket("presence-update", handlePresenceUpdate);
-  useSocket("cursor-update", handleCursorUpdate);
-  useSocket("snapshots-list", handleSnapshotsList);
-  useSocket("restore-sync", handleRestoreSync);
-
-  const handleCursorMove = (line: number, column: number) => {
-    socket.emit("cursor-move", { roomId, line, column });
-  };
-
-  const joinRoom = () => {
-    activeRoomRef.current = roomId;
-    activeUsernameRef.current = username;
-
-    if (socket.connected) {
-      socket.emit("join-room", { roomId, username });
-    } else {
-      socket.connect();
+  const handleCopyRoomId = () => {
+    if (navigator.clipboard && joinRoomId) {
+      navigator.clipboard.writeText(joinRoomId);
+      setIsCopied(true);
+      setTimeout(() => setIsCopied(false), 2000);
     }
   };
 
-  const loadSnapshots = () => {
-    socket.emit("get-snapshots", roomId);
+  const handleCreateRoom = () => {
+    const roomId = generateRoomId();
+    setIsCreating(true);
+    setJoinRoomId(roomId);
+    setJoinUsername("");
+    setJoinError("");
+    setShowJoin(true);
   };
 
-  const restoreSnapshot = (snapshotId: number) => {
-    socket.emit("restore-snapshot", { roomId, snapshotId });
+  const handleOpenJoin = () => {
+    setIsCreating(false);
+    setJoinRoomId("");
+    setJoinUsername("");
+    setJoinError("");
+    setShowJoin(true);
   };
 
-  const runCode = async () => {
-    try {
-      const response = await fetch(`${BACKEND_URL}/execute`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ language: "python", code: ytext.toString() }),
-      });
-      const data = await response.json();
-      setOutput(data.output ?? data.error ?? "No output");
-    } catch (error) {
-      console.error(error);
-      setOutput("Execution failed");
-    }
+  const handleJoinSubmit = () => {
+    const trimmedUser = joinUsername.trim();
+    const trimmedRoom = joinRoomId.trim();
+    if (!trimmedUser) { setJoinError("Please enter a username."); return; }
+    if (!trimmedRoom) { setJoinError("Please enter a room ID."); return; }
+    localStorage.setItem("collabcode_username", trimmedUser);
+    router.push(`/editor?room=${encodeURIComponent(trimmedRoom)}`);
   };
 
-  const handleEditorMount = async (editor: any, _monaco: any) => {
-    const model = editor.getModel();
-    if (!model) return;
-
-    if (bindingRef.current) {
-      bindingRef.current.destroy();
-      bindingRef.current = null;
-    }
-
-    const { MonacoBinding } = await import("y-monaco");
-    const binding = new MonacoBinding(ytext, model, new Set([editor]), null);
-    bindingRef.current = binding;
-    editorRef.current = editor;
+  const closeModal = () => {
+    setShowJoin(false);
+    setJoinError("");
   };
-
-  useEffect(() => {
-    return () => {
-      if (bindingRef.current) {
-        bindingRef.current.destroy();
-        bindingRef.current = null;
-      }
-    };
-  }, []);
-
-  useEffect(() => {
-    const editor = editorRef.current;
-    if (!editor || !cursorUsers.length) return;
-
-    const myId = socket.id;
-
-    const newDecorations = cursorUsers
-      .filter((u) => u.id !== myId)
-      .map((u) => ({
-        range: {
-          startLineNumber: u.line,
-          startColumn: 1,
-          endLineNumber: u.line,
-          endColumn: 1,
-        },
-        options: {
-          isWholeLine: true,
-          className: "collaborator-line-highlight",
-        },
-      }));
-
-    decorationIdsRef.current = editor.deltaDecorations(
-      decorationIdsRef.current,
-      newDecorations
-    );
-
-    const currentIds = new Set(cursorUsers.map((u) => u.id));
-
-    widgetMapRef.current.forEach((widget, id) => {
-      if (!currentIds.has(id) || id === myId) {
-        editor.removeContentWidget(widget);
-        widgetMapRef.current.delete(id);
-      }
-    });
-
-    cursorUsers
-      .filter((u) => u.id !== myId)
-      .forEach((u) => {
-        const existingWidget = widgetMapRef.current.get(u.id);
-        if (existingWidget) {
-          editor.removeContentWidget(existingWidget);
-        }
-
-        const widget = {
-          getId: () => `cursor-widget-${u.id}`,
-          getDomNode: () => {
-            const node = document.createElement("div");
-            node.className = "collaborator-cursor-widget";
-            node.textContent = u.username || "Anonymous";
-            return node;
-          },
-          getPosition: () => ({
-            position: { lineNumber: u.line, column: u.column },
-            preference: [1, 2],
-          }),
-        };
-
-        editor.addContentWidget(widget);
-        widgetMapRef.current.set(u.id, widget);
-      });
-  }, [cursorUsers]);
 
   return (
-    <div className="h-screen flex flex-col bg-[#0a0a0a] text-slate-200 overflow-hidden">
-      <header className="flex items-center gap-3 px-4 py-2.5 border-b border-slate-700/60 bg-[#111111] shrink-0">
-        <span className="text-base font-bold tracking-tight text-white mr-2 whitespace-nowrap">
+    <div className="min-h-screen bg-[#0a0a0a] text-slate-200 flex flex-col">
+
+      {/* ── Navbar ─────────────────────────────────────────────────────── */}
+      <nav className="border-b border-slate-800/80 px-6 py-3.5 flex items-center gap-4 sticky top-0 bg-[#0a0a0a]/95 backdrop-blur-sm z-40">
+        <span className="text-base font-bold tracking-tight text-white select-none">
           ⚡ CollabCode
         </span>
-
-        <input
-          type="text"
-          value={username}
-          onChange={(e) => setUsername(e.target.value)}
-          className="w-36 rounded bg-slate-800 border border-slate-700 px-2.5 py-1.5 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-slate-500"
-          placeholder="Username"
-        />
-
-        <input
-          className="w-36 rounded bg-slate-800 border border-slate-700 px-2.5 py-1.5 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-slate-500"
-          value={roomId}
-          onChange={(e) => setRoomId(e.target.value)}
-          placeholder="Room ID"
-        />
-
-        <button
-          className="rounded bg-slate-700 hover:bg-slate-600 px-3 py-1.5 text-sm text-slate-100 transition-colors"
-          onClick={joinRoom}
-        >
-          Join Room
-        </button>
-
+        <span className="hidden sm:inline text-slate-600 text-xs">|</span>
+        <span className="hidden sm:inline text-xs text-slate-500">
+          Built with Yjs, Redis &amp; Socket.IO
+        </span>
         <div className="ml-auto">
-          <button
-            onClick={runCode}
-            className="rounded bg-emerald-700 hover:bg-emerald-600 px-4 py-1.5 text-sm font-medium text-white transition-colors"
+          <a
+            href="https://github.com/aniruddh-batwal07/CollabCode"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 border border-slate-700 rounded px-3 py-1.5 transition-colors"
           >
-            ▶ Run Code
-          </button>
+            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" />
+            </svg>
+            GitHub
+          </a>
         </div>
-      </header>
+      </nav>
 
-      <div className="flex flex-1 overflow-hidden">
-        <aside className="w-80 shrink-0 flex flex-col border-r border-slate-700/60 bg-[#111111] overflow-y-auto">
-          <section className="p-3 border-b border-slate-700/60">
-            <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">
-              Online Users
-            </h2>
-            <ul className="space-y-1">
-              {users.map((user) => (
-                <li
-                  key={user.id}
-                  className="flex items-center gap-2 rounded px-2 py-1.5 bg-slate-800/60 text-sm text-slate-300"
-                >
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shrink-0" />
-                  {user.username}
-                </li>
-              ))}
-              {users.length === 0 && (
-                <li className="text-xs text-slate-600 px-2">No users yet</li>
-              )}
-            </ul>
-          </section>
+      {/* ── Hero ───────────────────────────────────────────────────────── */}
+      <main className="flex-1 flex flex-col items-center justify-center px-6 py-24 text-center">
+        <div className="max-w-2xl w-full">
+          <div className="inline-flex items-center gap-2 bg-slate-900 border border-slate-700/60 rounded-full px-3 py-1 text-xs text-slate-400 mb-8">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 inline-block"></span>
+            Open-source · No sign-up required
+          </div>
 
-          <section className="p-3 border-b border-slate-700/60">
-            <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">
-              Cursor Positions
-            </h2>
-            <ul className="space-y-1">
-              {cursorUsers.map((user) => (
-                <li
-                  key={user.id}
-                  className="flex items-center justify-between rounded px-2 py-1.5 bg-slate-800/60 text-sm text-slate-300"
-                >
-                  <span>{user.username}</span>
-                  <span className="text-xs text-slate-500">L {user.line}</span>
-                </li>
-              ))}
-              {cursorUsers.length === 0 && (
-                <li className="text-xs text-slate-600 px-2">No cursors yet</li>
-              )}
-            </ul>
-          </section>
+          <h1 className="text-5xl sm:text-6xl font-bold text-white leading-tight tracking-tight mb-4">
+            CollabCode
+          </h1>
+          <p className="text-slate-300 text-xl mb-4 font-light">
+            Real-Time Collaborative Code Editor
+          </p>
+          <p className="text-slate-500 text-sm mb-10 max-w-lg mx-auto leading-relaxed">
+            Multiple developers can edit the same document simultaneously.
+            Powered by CRDT synchronization (Yjs) — changes propagate instantly,
+            conflicts are resolved automatically.
+          </p>
 
-          <section className="p-3 flex-1 overflow-hidden">
-            <div className="flex items-center justify-between mb-2">
-              <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                Version History
-              </h2>
-              <button
-                className="rounded bg-slate-700 hover:bg-slate-600 px-2 py-1 text-xs text-slate-300 transition-colors"
-                onClick={loadSnapshots}
+          {/* CTAs */}
+          <div className="flex flex-col sm:flex-row gap-3 justify-center mb-20">
+            <button
+              id="btn-create-room"
+              onClick={handleCreateRoom}
+              className="bg-white text-[#0a0a0a] font-semibold px-8 py-3 rounded-md hover:bg-slate-100 transition-colors text-sm"
+            >
+              + Create Room
+            </button>
+            <button
+              id="btn-join-room"
+              onClick={handleOpenJoin}
+              className="bg-transparent border border-slate-600 text-slate-300 font-semibold px-8 py-3 rounded-md hover:border-slate-400 hover:text-white transition-colors text-sm"
+            >
+              → Join Room
+            </button>
+          </div>
+
+          {/* ── Feature Cards ─────────────────────────────────────────── */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-16 text-left">
+            {FEATURES.map((f) => (
+              <div
+                key={f.title}
+                className="bg-slate-900/60 border border-slate-800 rounded-lg p-4"
               >
-                Load
-              </button>
-            </div>
+                <div className="text-lg mb-2">{f.icon}</div>
+                <div className="text-sm font-semibold text-slate-200 mb-1">{f.title}</div>
+                <div className="text-xs text-slate-500 leading-relaxed">{f.desc}</div>
+              </div>
+            ))}
+          </div>
 
-            <div className="space-y-2 max-h-[300px] overflow-y-auto">
-              {snapshots.map((snapshot) => (
+          {/* ── Tech Stack ────────────────────────────────────────────── */}
+          <div className="border-t border-slate-800 pt-10">
+            <p className="text-xs uppercase tracking-widest text-slate-600 mb-5">
+              Technology Stack
+            </p>
+            <div className="flex flex-wrap justify-center gap-2">
+              {TECH_STACK.map((tech) => (
                 <div
-                  key={snapshot.id}
-                  className="rounded border border-slate-700/60 bg-slate-800/40 p-2"
+                  key={tech.name}
+                  className="flex items-center gap-2 bg-slate-900 border border-slate-800 rounded-md px-3 py-2"
                 >
-                  <div className="text-sm font-semibold text-slate-200">
-                    Version #{snapshot.id}
-                  </div>
-                  <div className="text-xs text-slate-600 mt-0.5">
-                    {new Date(snapshot.created_at).toLocaleString()}
-                  </div>
-                  <button
-                    className="mt-1.5 w-full rounded bg-slate-700 hover:bg-slate-600 px-2 py-1 text-xs text-slate-300 transition-colors"
-                    onClick={() => restoreSnapshot(snapshot.id)}
-                  >
-                    Restore
-                  </button>
+                  <span className="text-sm font-semibold text-slate-300">{tech.name}</span>
+                  <span className="text-xs text-slate-600">— {tech.desc}</span>
                 </div>
               ))}
-              {snapshots.length === 0 && (
-                <p className="text-xs text-slate-600">No snapshots loaded</p>
-              )}
             </div>
-          </section>
-        </aside>
-
-        <div className="flex flex-1 flex-col overflow-hidden">
-          <div className="flex-1 overflow-hidden">
-            <CodeEditor onMount={handleEditorMount} onCursorMove={handleCursorMove} />
-          </div>
-
-          <div className="h-40 shrink-0 border-t border-slate-700/60 bg-[#111111] flex flex-col">
-            <div className="flex items-center px-4 py-2 border-b border-slate-700/60">
-              <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                Output
-              </h2>
-            </div>
-            <pre className="flex-1 overflow-auto px-4 py-3 text-sm text-slate-300 font-mono leading-relaxed">
-              {output || <span className="text-slate-600">Run code to see output...</span>}
-            </pre>
           </div>
         </div>
-      </div>
+      </main>
+
+      {/* ── Footer ─────────────────────────────────────────────────────── */}
+      <footer className="border-t border-slate-800 px-6 py-5 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-600">
+        <span>Built by <span className="text-slate-400 font-medium">Aniruddh Batwal</span></span>
+        <div className="flex items-center gap-4">
+          <a
+            href="https://github.com/aniruddh-batwal07"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:text-slate-300 transition-colors"
+          >
+            GitHub
+          </a>
+          <a
+            href="https://linkedin.com/in/aniruddhbatwal"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:text-slate-300 transition-colors"
+          >
+            LinkedIn
+          </a>
+        </div>
+      </footer>
+
+      {/* ── Modal ──────────────────────────────────────────────────────── */}
+      {showJoin && (
+        <div
+          className="fixed inset-0 bg-black/75 flex items-center justify-center px-4 z-50"
+          onClick={(e) => { if (e.target === e.currentTarget) closeModal(); }}
+        >
+          <div className="bg-[#111111] border border-slate-700/80 rounded-xl w-full max-w-sm p-6 shadow-2xl">
+            <div className="mb-5">
+              <h2 className="text-base font-semibold text-white">
+                {isCreating ? "Create a Room" : "Join a Room"}
+              </h2>
+              <p className="text-xs text-slate-500 mt-1">
+                {isCreating
+                  ? "A room ID has been generated for you."
+                  : "Enter your username and an existing room ID."}
+              </p>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label htmlFor="modal-username" className="block text-xs font-medium text-slate-400 mb-1.5">
+                  Username
+                </label>
+                <input
+                  id="modal-username"
+                  type="text"
+                  value={joinUsername}
+                  onChange={(e) => { setJoinUsername(e.target.value); setJoinError(""); }}
+                  onKeyDown={(e) => e.key === "Enter" && handleJoinSubmit()}
+                  className="w-full rounded-md bg-slate-800 border border-slate-700 px-3 py-2.5 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-slate-500 transition-colors"
+                  placeholder="e.g. alice"
+                  autoFocus
+                />
+              </div>
+
+              <div>
+                <label htmlFor="modal-room" className="block text-xs font-medium text-slate-400 mb-1.5">
+                  Room ID
+                </label>
+                <div className="relative">
+                  <input
+                    id="modal-room"
+                    type="text"
+                    value={joinRoomId}
+                    onChange={(e) => { setJoinRoomId(e.target.value); setJoinError(""); }}
+                    onKeyDown={(e) => e.key === "Enter" && handleJoinSubmit()}
+                    className="w-full rounded-md bg-slate-800 border border-slate-700 pl-3 pr-10 py-2.5 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-slate-500 font-mono transition-colors"
+                    placeholder="e.g. room-a8d39f"
+                  />
+                  {joinRoomId && (
+                    <button
+                      onClick={handleCopyRoomId}
+                      title="Copy Room ID"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 p-1.5 rounded transition-colors"
+                    >
+                      {isCopied ? (
+                        <svg className="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                        </svg>
+                      ) : (
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                        </svg>
+                      )}
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {joinError && (
+                <p className="text-xs text-red-400 flex items-center gap-1">
+                  <span>⚠</span> {joinError}
+                </p>
+              )}
+            </div>
+
+            <div className="flex gap-2 mt-6">
+              <button
+                id="modal-cancel"
+                onClick={closeModal}
+                className="flex-1 rounded-md border border-slate-700 px-4 py-2.5 text-sm text-slate-400 hover:text-slate-200 hover:border-slate-600 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                id="modal-join"
+                onClick={handleJoinSubmit}
+                className="flex-1 rounded-md bg-white text-[#0a0a0a] font-semibold px-4 py-2.5 text-sm hover:bg-slate-100 transition-colors"
+              >
+                {isCreating ? "Create →" : "Join →"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
