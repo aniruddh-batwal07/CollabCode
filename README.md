@@ -28,13 +28,21 @@ CollabCode is a production-grade real-time collaborative code editor inspired by
 
 ## Preview
 
-![CollabCode — Landing Page and Editor](./docs/CollabCode.png)
+### Landing Page
+
+![Landing Page](./docs/landing-page.png)
+
+### Collaborative Editor
+
+![Collaborative Editor](./docs/editor.png)
 
 ---
 
 ## Demo
 
-<video src="./docs/demo.mp4" controls width="100%"></video>
+🌐 **Live Demo:** [https://collab-code-black-gamma.vercel.app](https://collab-code-black-gamma.vercel.app)
+
+📹 **Video walkthrough:** *(coming soon)*
 
 ---
 
