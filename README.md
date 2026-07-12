@@ -38,14 +38,6 @@ CollabCode is a production-grade real-time collaborative code editor inspired by
 
 ---
 
-## Demo
-
-🌐 **Live Demo:** [https://collab-code-black-gamma.vercel.app](https://collab-code-black-gamma.vercel.app)
-
-📹 **Video walkthrough:** *(coming soon)*
-
----
-
 ## Metrics
 
 | Metric | Result |
